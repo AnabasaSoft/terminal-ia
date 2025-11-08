@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script de instalación para Terminal-IA
-# v13.4 - Creado por Daniel Serrano Armenta
+# v17.4 - Creado por Daniel Serrano Armenta
 
 # --- Colores para la salida ---
 GREEN='\033[0;32m'
@@ -9,7 +9,7 @@ YELLOW='\033[0;33m'
 RED='\033[0;31m'
 NC='\033[0m' # Sin color
 
-echo -e "${GREEN}Iniciando la instalación de Terminal-IA (v13.4)...${NC}"
+echo -e "${GREEN}Iniciando la instalación de Terminal-IA (v17.4)...${NC}"
 
 # --- 1. Forzar ejecución como root (sudo) ---
 # Si el usuario no es root ($EUID -ne 0), vuelve a ejecutar este mismo script con sudo
