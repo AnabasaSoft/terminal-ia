@@ -32,7 +32,7 @@ import (
 
 // --- Constantes del Programa ---
 const (
-	currentVersion       = "v22.5" // ¡ACTUALIZADO!
+	currentVersion       = "v22.6" // ¡ACTUALIZADO!
 	repoOwner            = "danitxu79"
 	repoName             = "terminal-ia"
 	historyFileName      = ".terminal_ia_history"
@@ -645,24 +645,38 @@ func main() {
 	fmt.Println(cSystem("\n¡Adiós!"))
 }
 
-// sanitizeIACommand (Sin cambios)
+// sanitizeIACommand limpia y prepara el comando sugerido por la IA para su ejecución.
+// Ahora soporta comandos multi-línea.
 func sanitizeIACommand(rawCmd string) string {
 	cmd := strings.TrimSpace(rawCmd)
+
+	// Caso 1: Bloque de código con 3 backticks (```bash ... ```)
+	if strings.HasPrefix(cmd, "```") && strings.HasSuffix(cmd, "```") {
+		// Eliminar ``` inicial y final
+		cmd = strings.TrimPrefix(cmd, "```")
+		cmd = strings.TrimSuffix(cmd, "```")
+
+		// Si empieza con un lenguaje (ej. bash\n), eliminarlo
+		if strings.HasPrefix(cmd, "bash\n") {
+			cmd = strings.TrimPrefix(cmd, "bash\n")
+		} else if strings.HasPrefix(cmd, "sh\n") {
+			cmd = strings.TrimPrefix(cmd, "sh\n")
+		} else if strings.HasPrefix(cmd, "shell\n") {
+			cmd = strings.TrimPrefix(cmd, "shell\n")
+		}
+
+		return strings.TrimSpace(cmd) // Devolvemos el contenido limpio
+	}
+
+	// Caso 2: Comando con un solo backtick (`...`)
 	if strings.HasPrefix(cmd, "`") && strings.HasSuffix(cmd, "`") {
 		cmd = strings.TrimPrefix(cmd, "`")
 		cmd = strings.TrimSuffix(cmd, "`")
 		return strings.TrimSpace(cmd)
 	}
-	if strings.HasPrefix(cmd, "```") && strings.HasSuffix(cmd, "```") {
-		cmd = strings.TrimPrefix(cmd, "```")
-		cmd = strings.TrimSuffix(cmd, "```")
-		if strings.HasPrefix(cmd, "bash\n") {
-			cmd = strings.TrimPrefix(cmd, "bash\n")
-		} else if strings.HasPrefix(cmd, "sh\n") {
-			cmd = strings.TrimPrefix(cmd, "sh\n")
-		}
-		return strings.TrimSpace(cmd)
-	}
+
+	// Caso 3: Comando simple o multi-línea sin backticks.
+	// Bash lo manejará correctamente si usamos 'bash -c' con saltos de línea/puntos y comas.
 	return cmd
 }
 
