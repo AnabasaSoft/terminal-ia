@@ -30,7 +30,7 @@ import (
 
 // --- Constantes del Programa ---
 const (
-	currentVersion       = "v22.0" // ¡ACTUALIZADO!
+	currentVersion       = "v22.5" // ¡ACTUALIZADO!
 	repoOwner            = "danitxu79"
 	repoName             = "terminal-ia"
 	historyFileName      = ".terminal_ia_history"
