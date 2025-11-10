@@ -27,7 +27,7 @@ import (
 
 // --- Constantes del Programa ---
 const (
-	currentVersion  = "v19.0" // ¡ACTUALIZADO!
+	currentVersion  = "v19.2" // ¡ACTUALIZADO!
 	repoOwner       = "danitxu79"
 	repoName        = "terminal-ia"
 	historyFileName = ".terminal_ia_history"
@@ -304,6 +304,48 @@ func main() {
 	defer state.Close()
 	state.SetCtrlCAborts(true)
 
+	// --- ¡NUEVO! LÓGICA DE AUTO-COMPLETADO ---
+	state.SetCompleter(func(line string) (c []string) {
+		commands := []string{
+			"/help",
+			"/chat ",
+			"/tiempo ",
+			"/traducir ",
+			"/model",
+			"/ask",
+			"cd ",
+			"exit",
+			"quit",
+		}
+
+		// Sugerencias de comandos
+		for _, cmd := range commands {
+			if strings.HasPrefix(cmd, line) {
+				c = append(c, cmd)
+			}
+		}
+
+		// Autocompletar rutas si empieza con "cd "
+		if strings.HasPrefix(line, "cd ") {
+			dirPart := strings.TrimSpace(strings.TrimPrefix(line, "cd "))
+			if dirPart == "" {
+				dirPart = "./"
+			}
+			if !strings.HasSuffix(dirPart, "*") {
+				dirPart += "*"
+			}
+
+			files, _ := filepath.Glob(dirPart)
+			for _, f := range files {
+				if info, err := os.Stat(f); err == nil && info.IsDir() {
+					c = append(c, "cd "+f+"/")
+				}
+			}
+		}
+		return
+	})
+	// --- FIN DE LÓGICA DE AUTO-COMPLETADO ---
+
 	home, err := os.UserHomeDir()
 	if err == nil {
 		historyPath := filepath.Join(home, historyFileName)
@@ -332,6 +374,7 @@ func main() {
 
 	// --- ¡CORRECCIÓN! Las líneas que usaban GetHistory/SetHistory han sido eliminadas ---
 	// (La "pega" es que el '1' de la selección de modelo estará en el historial)
+
 
 	for {
 		select {
@@ -442,7 +485,7 @@ func main() {
 			}
 			handleWeatherCommand(client, selectedModel, prompt)
 
-		} else if strings.HasPrefix(input, "/traducir ") { // --- ¡NUEVO COMANDO! ---
+		} else if strings.HasPrefix(input, "/traducir ") { // --- ¡COMANDO TRADUCIR AÑADIDO! ---
 			prompt := strings.TrimPrefix(input, "/traducir ")
 			prompt = strings.TrimSpace(prompt)
 			if prompt == "" {
