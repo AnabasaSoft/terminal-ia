@@ -99,11 +99,22 @@ Si ya tienes Ollama y solo quieres ejecutar el código fuente:
 
 ## 📜 Licencia
 
-Copyright (c) 2025 Daniel Serrano Armenta. Todos los derechos reservados.
+Este proyecto se ofrece bajo un modelo de **Doble Licencia** (Dual License) para proveer flexibilidad:
 
-Este proyecto es **Freeware**. Se te permite usar y distribuir este software gratuitamente para fines no comerciales. No se permite la modificación, reventa o uso comercial sin el permiso explícito del autor.
+### 1. Licencia Pública (Uso Comunitario y No Comercial)
+
+El código está disponible bajo la **GNU Lesser General Public License v3 (LGPLv3)**.
+
+* **Permite:** Uso, modificación y distribución gratuita (ideal para proyectos personales, educativos y no lucrativos).
+* **Restringe:** Las modificaciones al código principal deben mantenerse abiertas bajo la misma licencia (copyleft).
 
 Ver el archivo `LICENSE` para más detalles.
+
+### 2. Licencia Propietaria (Uso Comercial y Lucrativo)
+
+Las partes que deseen utilizar este software para fines comerciales o lucrativos, o que deseen evitar las restricciones de *copyleft* de la LGPLv3, deben adquirir una **Licencia Comercial Propietaria** directamente del autor.
+
+Para obtener una licencia comercial y discutir los términos de pago, por favor contacte a Daniel Serrano Armenta en `dani.eus79@gmail.com`.
 
 ## ✉️ Contacto
 

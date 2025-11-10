@@ -1,3 +1,5 @@
+// Copyright (c) 2025 Daniel Serrano Armenta. Todos los derechos reservados.
+
 package main
 
 import (

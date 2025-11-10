@@ -1,22 +1,149 @@
-Copyright (c) 2025 Daniel Serrano Armenta
-dani.eus79@gmail.com
+GNU LESSER GENERAL PUBLIC LICENSE
+Version 3, 29 June 2007
 
-Todos los derechos reservados.
+Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
+Everyone is permitted to copy and distribute verbatim copies
+of this license document, but changing it is not allowed.
 
-Se concede permiso, de forma gratuita, a cualquier persona que obtenga una copia
-de este software y los archivos de documentación asociados (el "Software"), para utilizar
-el Software sin restricciones para fines personales y no comerciales, incluyendo,
-sin limitación, los derechos de uso y copia del Software.
+This version of the GNU Lesser General Public License incorporates
+the terms and conditions of version 3 of the GNU General Public
+License, supplemented by the additional permissions listed below.
 
-QUEDA PROHIBIDO, SIN EL PERMISO EXPLÍCITO POR ESCRITO DEL TITULAR DE LOS DERECHOS DE AUTOR:
-1. Modificar, fusionar, publicar, distribuir, sublicenciar, y/o vender copias del
-   Software.
-2. Utilizar el Software para cualquier fin comercial.
+0. Additional Definitions.
 
-EL SOFTWARE SE PROPORCIONA "TAL CUAL", SIN GARANTÍA DE NINGÚN TIPO, EXPRESA O
-IMPLÍCITA, INCLUYENDO PERO NO LIMITADO A GARANTÍAS DE COMERCIABILIDAD,
-IDONEIDAD PARA UN PROPÓSITO PARTICULAR Y NO INFRACCIÓN. EN NINGÚN CASO
-LOS AUTORES O TITULARES DE LOS DERECHOS DE AUTOR SERÁN RESPONSABLES DE NINGUNA RECLAMACIÓN,
-DAÑO U OTRA RESPONSABILIDAD, YA SEA EN UNA ACCIÓN DE CONTRATO, AGRAVIO O CUALQUIER OTRO MOTIVO,
-QUE SURJA DE, FUERA DE O EN CONEXIÓN CON EL SOFTWARE O EL USO U OTRAS
-TRANSACCIONES EN EL SOFTWARE.
+As used herein, "this License" refers to version 3 of the GNU Lesser
+General Public License, and the "GNU GPL" refers to version 3 of the
+GNU General Public License.
+
+"The Library" refers to a covered work governed by this License,
+other than an Application or a Combined Work as defined below.
+
+An "Application" is any work that makes use of an interface provided
+by the Library, but which is not otherwise based on the Library.
+Defining a subclass of a class defined by the Library is deemed a
+mode of using an interface.
+
+A "Combined Work" is a work produced by combining or linking an
+Application with the Library. The various terms of the GNU GPL
+concerning "modified versions" and "derivative works" apply to
+the Combined Work, mutatis mutandis, as to works covered by
+the GNU GPL.
+
+When a section of a file does not relate to the Library, and is an
+independent work in itself, whose distribution is not conditioned by
+being linked with the Library, that section is not covered by this
+License. Otherwise, the object code for that section is a Combined
+Work.
+
+"Minimum Corresponding Source" for a Combined Work means the
+Corresponding Source for the Library, including any data and utility
+programs needed for reproducing the Combined Work from it, but
+excluding the source code, build scripts and installation utilities
+for the Application.
+
+The "Corresponding Source" for a work in object code form means the
+source code for all the work and all the data and utility programs
+needed for generating, installing, and running the object code and to
+modify the work and reproduce its object code form, all subject to
+the condition that the Modified Source Code includes the work's
+Corresponding Source and a complete installation script that will
+install the work and its Corresponding Source, so that the object
+code form is not considered an "Associated Data".
+
+1. Exception to the GNU General Public License.
+
+You may convey a Combined Work under terms of your choice that,
+taken together, must not restrict or forbid the user of the Combined
+Work from modifying the Library or its use for debugging. You may
+convey a copy of the Combined Work under terms of your choice,
+provided that those terms, taken together, do not forbid the user of
+the Combined Work from:
+
+a) Modifying the Library and running the modified version for
+their own purposes (using the Modified Source Code);
+
+b) Running the Combined Work under the terms of the GNU GPL;
+
+c) Receiving the Corresponding Source for the Library in a form
+suitable for installing and executing the modified version in
+a copy of the Combined Work.
+
+The "Corresponding Source" for the Combined Work must be included,
+in a form suitable for installing and running the modified version
+in a copy of the Combined Work, with the object code form.
+
+2. Exceptions to the GNU General Public License.
+
+a) When a section of a file does not relate to the Library, and is an
+independent work in itself, whose distribution is not conditioned by
+being linked with the Library, that section is not covered by this
+License. Otherwise, the object code for that section is a Combined
+Work.
+
+b) The various terms of the GNU GPL concerning "modified versions" and
+"derivative works" apply to the Combined Work, mutatis mutandis, as
+to works covered by the GNU GPL.
+
+c) If the Combined Work is distributed under terms that are compatible
+with the GNU GPL, the Combined Work may be distributed under those
+terms.
+
+d) If the Combined Work is distributed under terms that are
+incompatible with the GNU GPL, the Combined Work may be distributed
+under those terms, provided that those terms, taken together, do not
+forbid the user of the Combined Work from:
+
+i) Modifying the Library and running the modified version for their
+own purposes (using the Modified Source Code);
+
+ii) Running the Combined Work under the terms of the GNU GPL;
+
+iii) Receiving the Corresponding Source for the Library in a form
+suitable for installing and executing the modified version in
+a copy of the Combined Work.
+
+e) You may convey a copy of the Combined Work under terms of your
+choice, provided that those terms, taken together, do not forbid
+the user of the Combined Work from:
+
+i) Modifying the Library and running the modified version for their
+own purposes (using the Modified Source Code);
+
+ii) Running the Combined Work under the terms of the GNU GPL;
+
+iii) Receiving the Corresponding Source for the Library in a form
+suitable for installing and executing the modified version in
+a copy of the Combined Work.
+
+f) You may convey a Combined Work under terms of your choice that,
+taken together, must not restrict or forbid the user of the Combined
+Work from modifying the Library or its use for debugging. You may
+convey a copy of the Combined Work under terms of your choice,
+provided that those terms, taken together, do not forbid the user of
+the Combined Work from:
+
+i) Modifying the Library and running the modified version for their
+own purposes (using the Modified Source Code);
+
+ii) Running the Combined Work under the terms of the GNU GPL;
+
+iii) Receiving the Corresponding Source for the Library in a form
+suitable for installing and executing the modified version in
+a copy of the Combined Work.
+
+3. Conveying Modified Versions.
+
+If you convey a copy of the Library, or a Modified Version of it,
+under this License, you must also convey the Library, or Modified
+Version, under the terms of this License.
+
+4. Conveying Applications.
+
+You may convey an Application under terms of your choice, provided
+that the Application is otherwise an independent work in itself, and
+that the distribution of the Application is not conditioned on being
+linked with the Library.
+
+5. Other Rules.
+
+The other rules of the GNU GPL version 3 apply to this License.
