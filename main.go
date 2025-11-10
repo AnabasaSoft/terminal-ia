@@ -862,10 +862,21 @@ func handleTranslateCommand(client *api.Client, modelName string, userPrompt str
 
 // handleIACommandAuto (Sin cambios)
 func handleIACommandAuto(client *api.Client, modelName string, userPrompt string) {
-	systemPrompt := `Eres un experto en terminal de Linux y shell.
+	// 1. Obtener contexto de archivos
+	dirSnippet := getDirectorySnippet()
+	contextLine := ""
+	if dirSnippet != "" {
+		contextLine = fmt.Sprintf("Contexto de archivos en CWD: %s.", dirSnippet)
+	}
+
+	// 2. Definir System Prompt
+	systemPrompt := fmt.Sprintf(`Eres un experto en terminal de Linux y shell.
 	Traduce la siguiente petición de lenguaje natural a un ÚNICO comando de shell.
+	%s
 	Responde SÓLO con el comando y nada más. No uses markdown, ni explicaciones.
-	Petición: `
+	Petición: `, contextLine)
+
+	// 3. Crear Full Prompt
 	fullPrompt := systemPrompt + userPrompt
 	fmt.Println(cIA("IA> Procesando (auto)..."))
 
@@ -900,10 +911,21 @@ func handleIACommandAuto(client *api.Client, modelName string, userPrompt string
 
 // handleIACommandConfirm (Sin cambios)
 func handleIACommandConfirm(client *api.Client, state *liner.State, modelName string, userPrompt string) bool {
-	systemPrompt := `Eres un experto en terminal de Linux y shell.
+	// 1. Obtener contexto de archivos
+	dirSnippet := getDirectorySnippet()
+	contextLine := ""
+	if dirSnippet != "" {
+		contextLine = fmt.Sprintf("Contexto de archivos en CWD: %s.", dirSnippet)
+	}
+
+	// 2. Definir System Prompt
+	systemPrompt := fmt.Sprintf(`Eres un experto en terminal de Linux y shell.
 	Traduce la siguiente petición de lenguaje natural a un ÚNICO comando de shell.
+	%s
 	Responde SÓLO con el comando y nada más. No uses markdown, ni explicaciones.
-	Petición: `
+	Petición: `, contextLine)
+
+	// 3. Crear Full Prompt
 	fullPrompt := systemPrompt + userPrompt
 	fmt.Println(cIA("IA> Procesando..."))
 	req := &api.GenerateRequest{
@@ -926,7 +948,7 @@ func handleIACommandConfirm(client *api.Client, state *liner.State, modelName st
 	fmt.Println(cIA("IA> Comando sugerido:"))
 	fmt.Printf("\n%s\n\n", comandoSugerido)
 	fmt.Println(cSystem("---"))
-	prompt := "IA> ¿Ejecutar? [s/N/X (Siempre)]: "
+	prompt := "IA> ¿Ejecutar? [s/N/x (Siempre)]: "
 	confirmacion, err := state.Prompt(prompt)
 	if err != nil {
 		if err == io.EOF || err == liner.ErrPromptAborted {
@@ -1032,7 +1054,6 @@ func shouldColorOutput(cmd string) bool {
 	return false
 }
 
-// --- ¡NUEVAS FUNCIONES! Sección de Historial Semántico ---
 
 // --- Funciones Matemáticas para Similitud de Coseno ---
 
@@ -1063,8 +1084,6 @@ func cosineSimilarity(a, b []float64) float64 {
 	}
 	return dotProduct(a, b) / (magA * magB)
 }
-
-// --- Funciones de API y Lógica de Historial ---
 
 // getEmbedding llama a la API de Ollama para un texto dado
 func getEmbedding(client *api.Client, text string, model string) ([]float64, error) {
@@ -1255,4 +1274,57 @@ func handleSearchCommand(client *api.Client, state *liner.State, model string, q
 	}
 }
 
-// --- FIN DE NUEVAS FUNCIONES ---
+// getDirectorySnippet escanea el directorio actual y devuelve un string con los archivos/dirs relevantes.
+func getDirectorySnippet() string {
+	// 1. Obtener archivos
+	files, err := os.ReadDir(".")
+	if err != nil {
+		return ""
+	}
+
+	var snippet strings.Builder
+	fileCount := 0
+
+	// Lista de nombres o extensiones a ignorar para mantener el contexto limpio
+	ignoreList := map[string]bool{
+		".git": true,
+		"vendor": true,
+		"node_modules": true,
+		"terminal-ia": true, // El binario compilado
+	}
+
+	// 2. Formatear los 10 elementos más relevantes
+	for _, file := range files {
+		name := file.Name()
+
+		// 2.1. Ignorar elementos
+		if strings.HasPrefix(name, ".") && name != "." && name != ".." {
+			// Ignorar archivos y directorios ocultos (excepto los que queremos ver)
+			if _, ok := ignoreList[name]; !ok {
+				continue
+			}
+		} else if _, ok := ignoreList[name]; ok {
+			continue
+		}
+
+		if fileCount >= 10 { // Limitar a 10 items
+			break
+		}
+
+		// 2.2. Añadir al snippet
+		if file.IsDir() {
+			snippet.WriteString(name)
+			snippet.WriteString("/")
+		} else {
+			snippet.WriteString(name)
+		}
+		snippet.WriteString(", ")
+		fileCount++
+	}
+
+	if snippet.Len() > 0 {
+		// Eliminar la última coma y espacio ", "
+		return strings.TrimSuffix(snippet.String(), ", ")
+	}
+	return ""
+}

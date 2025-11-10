@@ -13,6 +13,8 @@ Un shell interactivo en Go que utiliza el poder de los modelos de Ollama para co
 
 ## 💡 Características Principales
 
+Contexto de Archivos Local (¡Nuevo!): La IA escanea automáticamente los archivos y directorios más relevantes de tu directorio de trabajo actual (CWD) e inyecta esa información en el prompt de sistema. Esto hace que las sugerencias de comandos sean contextuales y específicas (ej. si tienes un archivo data.json y pides /dame el contenido, la IA sugerirá directamente cat data.json).
+
 Historial Semántico (¡Nuevo!): Usa /buscar <intención> (ej. /buscar reiniciar el servidor) para encontrar comandos en tu historial basándote en el significado, no en el texto exacto. El sistema utiliza embeddings para encontrar el comando más relevante que hayas ejecutado con éxito en el pasado.
 
 Chat con Memoria (¡Nuevo!): El modo /chat <pregunta> ahora recuerda el contexto de tu conversación. Puedes hacer preguntas de seguimiento y la IA recordará lo que se dijo antes. Usa /reset para limpiar la memoria del chat.
