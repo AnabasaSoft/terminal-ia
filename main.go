@@ -590,16 +590,35 @@ func main() {
 			}
 
 		} else {
-			// --- ¡INICIO DE DEPURACIÓN INTELIGENTE DE ERRORES! ---
+			// --- INICIO DE DEPURACIÓN INTELIGENTE DE ERRORES ---
+
+			// --- ¡NUEVO! INYECTAR COLOR EN COMANDOS ---
+			finalInput := input // Por defecto, es el mismo comando
+
+			// Usamos tu función para decidir si inyectar --color=always
+			if shouldColorOutput(input) {
+				firstSpace := strings.Index(input, " ")
+				if firstSpace == -1 {
+					// Comando sin argumentos (ej. "ls")
+					finalInput = input + " --color=always"
+				} else {
+					// Comando con argumentos (ej. "ls -l")
+					cmdName := input[:firstSpace]
+					args := input[firstSpace:]
+					finalInput = cmdName + " --color=always" + args
+				}
+			}
+			// --- FIN DE INYECCIÓN DE COLOR ---
+
 
 			// 1. Ejecutar el comando de Shell
-			cmd := exec.Command("bash", "-c", input)
+			// ¡Usamos finalInput en lugar de input!
+			cmd := exec.Command("bash", "-c", finalInput)
 
-			// Necesitamos capturar el stderr para analizarlo, mientras lo mostramos al usuario.
+			// Capturar tanto stdout como stderr
 			var stdoutBuf, stderrBuf bytes.Buffer
-			// io.MultiWriter permite que los datos vayan a dos sitios: la terminal y nuestro buffer
-			cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
-			cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+			cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf) // Muestra y captura STDOUT
+			cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf) // Muestra y captura STDERR
 
 			fmt.Println() // Espacio antes de la ejecución
 
@@ -607,7 +626,7 @@ func main() {
 
 			// 2. Comprobar si falló (código de salida distinto de 0)
 			if err != nil {
-				// La salida de error está en stderrBuf.
+				// El comando falló. La salida de error está en stderrBuf.
 				errorOutput := stderrBuf.String()
 
 				fmt.Println() // Espacio de aire
@@ -619,7 +638,7 @@ func main() {
 
 			// Si no falló, o si la depuración terminó, añade un espacio
 			fmt.Println()
-			// --- ¡FIN DE DEPURACIÓN INTELIGENTE DE ERRORES! ---
+			// --- FIN DE DEPURACIÓN INTELIGENTE DE ERRORES! ---
 		}
 	}
 
@@ -1034,4 +1053,26 @@ func handleDebugCommand(client *api.Client, modelName string, errorOutput string
 	}
 
 	fmt.Println() // Salto de línea después del análisis
+}
+
+// --- shouldColorOutput ---
+// Determina si el comando debería forzar salida con color (por ejemplo: ls, grep, diff)
+func shouldColorOutput(cmd string) bool {
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return false
+	}
+
+	colorCommands := []string{
+		"ls", "grep", "diff", "git", "kubectl", "docker", "tree",
+	}
+
+	// Comprobamos si el comando empieza por alguno de los anteriores
+	for _, c := range colorCommands {
+		if strings.HasPrefix(cmd, c+" ") || cmd == c {
+			return true
+		}
+	}
+
+	return false
 }
