@@ -1,4 +1,4 @@
-# 🤖 Terminal Aumentada por IA (v13.4)
+# 🤖 Terminal Aumentada por IA 
 
 [![Go Version](https://img.shields.io/badge/Go-1.20+-blue.svg)](https://golang.org)
 [![Ollama](https://img.shields.io/badge/Ollama-Framework-lightgrey.svg)](https://ollama.com/)
@@ -15,6 +15,7 @@ Un shell interactivo en Go que utiliza el poder de los modelos de Ollama para co
 
 * **Traducción de Comandos:** Escribe `/<tu consulta>` (ej. `/encontrar archivos .log`) y la IA generará el comando de shell.
 * **Chat General:** Usa `/chat <pregunta>` (ej. `/chat ¿qué es Docker?`) para tener una conversación normal con la IA.
+* **Traducción Rápida:** Usa `/traducir <idioma> <texto>` para traducciones instantáneas (ej. `/traducir en hola`).
 * **Ejecución Segura:** Confirma cada comando sugerido por la IA con un simple `[s/N/X]`.
 * **Modo Auto-Ejecución:** Activa el modo de "confianza" (`X`) para ejecutar comandos automáticamente (se desactiva con `/ask`).
 * **Selector de Modelos Dinámico:** Cambia de modelo de IA (`llama3`, `codellama`, etc.) en cualquier momento con el comando `/model`.
@@ -73,6 +74,7 @@ Si ya tienes Ollama y solo quieres ejecutar el código fuente:
 | :--- | :--- |
 | `/<petición>` | Envía una consulta de shell a la IA (ej. `/listar archivos .go`). |
 | `/chat <pregunta>` | Inicia una conversación de chat (ej. `/chat ¿qué es Docker?`). |
+| `/traducir <idioma> <texto>` | Traduce un texto (ej. `/traducir fr hola`). |
 | `/model` | Vuelve a mostrar el menú de selección de modelos. |
 | `/ask` | Desactiva el modo de auto-ejecución. |
 | `/help` | Muestra el menú de ayuda. |

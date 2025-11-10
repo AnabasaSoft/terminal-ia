@@ -1,7 +1,6 @@
 package main
 
 import (
-	// "bytes" // --- ¡ELIMINADO! Ya no se usa.
 	"context"
 	"encoding/json"
 	"fmt"
@@ -28,7 +27,7 @@ import (
 
 // --- Constantes del Programa ---
 const (
-	currentVersion  = "17.5" // ¡ACTUALIZADO!
+	currentVersion  = "v19.0" // ¡ACTUALIZADO!
 	repoOwner       = "danitxu79"
 	repoName        = "terminal-ia"
 	historyFileName = ".terminal_ia_history"
@@ -51,7 +50,7 @@ var (
 	updateMessageChannel = make(chan string, 1)
 )
 
-// Structs para la API de wttr.in
+// Structs para APIs
 type WttrWeatherDesc struct {
 	Value string `json:"value"`
 }
@@ -71,7 +70,6 @@ type WttrResponse struct {
 		} `json:"country"`
 	} `json:"nearest_area"`
 }
-// Struct solo para el campo que necesitamos de la API de GitHub
 type GitHubRelease struct {
 	TagName string `json:"tag_name"`
 }
@@ -86,7 +84,7 @@ func clearScreen() {
 func loadLogos() {
 	file, err := os.Open("logos.json")
 	if err != nil {
-		fmt.Println(cError("Error: No se encontró logos.json. Saltando logos."))
+		fmt.Println(cError(fmt.Sprintf("Error: No se encontró logos.json. Saltando logos.")))
 		logoMap = make(map[string][]string)
 		return
 	}
@@ -161,13 +159,14 @@ func printHeader() {
 	fmt.Println(styleHeader.Render(fmt.Sprintf("  Github: https://github.com/%s/%s", repoOwner, repoName)))
 }
 
-// printHelp (Sin cambios)
+// --- printHelp (¡ACTUALIZADO!) ---
 func printHelp() {
 	fmt.Println()
 	fmt.Println(cSystem("--- Ayuda: Comandos Disponibles ---"))
 	fmt.Println(cPrompt("  /<petición> ") + cIA("- Pide un comando de shell (ej. /listar archivos .go)"))
 	fmt.Println(cPrompt("  /chat <pregunta> ") + cIA("- Inicia una conversación de chat (ej. /chat ¿qué es Docker?)"))
 	fmt.Println(cPrompt("  /tiempo <lugar>  ") + cIA("- Consulta el tiempo (sin API key) (ej. /tiempo Madrid)"))
+	fmt.Println(cPrompt("  /traducir <idioma> <texto> ") + cIA("- Traduce un texto (ej. /traducir fr hola)"))
 	fmt.Println(cPrompt("  /model       ") + cIA("- Vuelve a mostrar el selector de modelos."))
 	fmt.Println(cPrompt("  /ask         ") + cIA("- Desactiva el modo 'auto' y vuelve a pedir confirmación."))
 	fmt.Println(cPrompt("  /help        ") + cIA("- Muestra este menú de ayuda."))
@@ -262,23 +261,23 @@ func checkVersion() {
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
-		return // Falla silenciosamente
+		return
 	}
 	req.Header.Set("User-Agent", "terminal-ia-updater")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return // Falla silenciosamente (sin internet)
+		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return // Falla silenciosamente (ej. API rate limit)
+		return
 	}
 
 	var release GitHubRelease
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return // Falla silenciosamente (JSON corrupto)
+		return
 	}
 
 	if release.TagName != "" && release.TagName != currentVersion {
@@ -331,13 +330,14 @@ func main() {
 	var alwaysExecute bool = false
 	var isFirstLoop bool = true
 
+	// --- ¡CORRECCIÓN! Las líneas que usaban GetHistory/SetHistory han sido eliminadas ---
+	// (La "pega" es que el '1' de la selección de modelo estará en el historial)
+
 	for {
-		// --- ¡LÓGICA DE ACTUALIZACIÓN DE VERSIÓN ---
 		select {
 			case updateMsg := <-updateMessageChannel:
-				fmt.Print(updateMsg) // Imprime el mensaje de forma segura
+				fmt.Print(updateMsg)
 			default:
-				// No hay mensaje, no bloquees
 		}
 
 		if isFirstLoop {
@@ -418,6 +418,8 @@ func main() {
 			printHeader()
 			fmt.Println(cSystem("\n  Consejo: Escribe /help para ver todos los comandos."))
 			isFirstLoop = true
+
+			// --- ¡CORRECCIÓN! Las líneas que usaban GetHistory/SetHistory han sido eliminadas ---
 			continue
 
 		} else if input == "/ask" {
@@ -439,6 +441,16 @@ func main() {
 				continue
 			}
 			handleWeatherCommand(client, selectedModel, prompt)
+
+		} else if strings.HasPrefix(input, "/traducir ") { // --- ¡NUEVO COMANDO! ---
+			prompt := strings.TrimPrefix(input, "/traducir ")
+			prompt = strings.TrimSpace(prompt)
+			if prompt == "" {
+				fmt.Println(cError("IA> Petición de traducción vacía. Escribe /traducir <idioma> <texto>."))
+				fmt.Println()
+				continue
+			}
+			handleTranslateCommand(client, selectedModel, prompt)
 
 		} else if strings.HasPrefix(input, "/chat ") {
 			prompt := strings.TrimPrefix(input, "/chat ")
@@ -650,6 +662,64 @@ func handleChatCommand(client *api.Client, modelName string, userPrompt string) 
 		}
 	}
 
+	fmt.Println()
+}
+
+// --- ¡NUEVA FUNCIÓN DE TRADUCCIÓN! ---
+func handleTranslateCommand(client *api.Client, modelName string, userPrompt string) {
+	// 1. Parsear la entrada (ej. "fr hola mundo")
+	parts := strings.SplitN(userPrompt, " ", 2)
+	if len(parts) < 2 {
+		fmt.Println(cError("Error de formato. Uso: /traducir <idioma> <texto>"))
+		fmt.Println(cSystem("Ejemplo: /traducir en Hello world"))
+		fmt.Println()
+		return
+	}
+	targetLang := parts[0]
+	textToTranslate := parts[1]
+
+	// 2. Crear el prompt de sistema
+	systemPrompt := fmt.Sprintf("Eres un traductor experto. Traduce el texto del usuario al idioma '%s'. Responde ÚNICAMENTE con la traducción, sin explicaciones ni frases introductorias.", targetLang)
+	fullPrompt := textToTranslate
+
+	fmt.Println(cIA("IA> Traduciendo..."))
+
+	// 3. Llamar a Ollama (podemos reusar la lógica de streaming de /chat)
+	ctx, cancel := context.WithCancel(context.Background())
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT)
+	go func() {
+		<-sigChan
+		cancel()
+	}()
+	defer signal.Stop(sigChan)
+
+	stream := true
+	req := &api.GenerateRequest{
+		Model:  modelName,
+		System: systemPrompt, // ¡Usamos el campo System!
+		Prompt: fullPrompt,
+		Stream: &stream,
+	}
+
+	firstChunk := true
+	streamHandler := func(r api.GenerateResponse) error {
+		if firstChunk {
+			fmt.Print("\r" + cIA("IA: ") + "    \r")
+			firstChunk = false
+		}
+		fmt.Print(r.Response)
+		return nil
+	}
+
+	err := client.Generate(ctx, req, streamHandler)
+	if err != nil {
+		if err == context.Canceled {
+			fmt.Print(cError("\n[Stream cancelado]"))
+		} else {
+			fmt.Println(cError(fmt.Sprintf("\nError al generar respuesta de traducción: %v", err)))
+		}
+	}
 	fmt.Println()
 }
 
