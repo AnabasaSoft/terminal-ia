@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,40 +17,41 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"bytes"
 
-	"github.com/ollama/ollama/api"
+	"github.com/fatih/color"
+	"github.com/lucasb-eyer/go-colorful"
+	"github.com/peterh/liner"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/lucasb-eyer/go-colorful"
-	"github.com/fatih/color"
-	"github.com/peterh/liner"
+	"github.com/ollama/ollama/api"
 )
 
 // --- Constantes del Programa ---
 const (
-	currentVersion  = "v20.0" // ¡ACTUALIZADO!
-	repoOwner       = "danitxu79"
-	repoName        = "terminal-ia"
-	historyFileName = ".terminal_ia_history"
+	currentVersion    = "v21.0" // ¡ACTUALIZADO!
+	repoOwner         = "danitxu79"
+	repoName          = "terminal-ia"
+	historyFileName   = ".terminal_ia_history"
 	debugSystemPrompt = "Eres un experto en depuración de comandos de Linux. Analiza el siguiente error de terminal (stderr), explica brevemente por qué ocurrió y proporciona una solución concisa que el usuario pueda copiar/pegar."
 )
 
-
 // --- Estructuras y Variables Globales de Estilo ---
 var (
-	logoMap    map[string][]string
-	colorMap   map[string][]string
+	logoMap  map[string][]string
+	colorMap map[string][]string
 
 	styleHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
 
-	cSystem   = color.New(color.FgYellow).SprintFunc()
-	cError    = color.New(color.FgRed, color.Bold).SprintFunc()
-	cPrompt   = color.New(color.FgHiCyan, color.Bold).SprintFunc()
-	cIA       = color.New(color.FgGreen).SprintFunc()
-	cModel    = color.New(color.FgMagenta).SprintFunc()
+	cSystem = color.New(color.FgYellow).SprintFunc()
+	cError  = color.New(color.FgRed, color.Bold).SprintFunc()
+	cPrompt = color.New(color.FgHiCyan, color.Bold).SprintFunc()
+	cIA     = color.New(color.FgGreen).SprintFunc()
+	cModel  = color.New(color.FgMagenta).SprintFunc()
 
 	updateMessageChannel = make(chan string, 1)
+
+	// --- ¡NUEVO! Historial de Chat ---
+	chatHistory []api.Message
 )
 
 // Structs para APIs
@@ -63,7 +65,7 @@ type WttrCurrentCondition struct {
 }
 type WttrResponse struct {
 	CurrentCondition []WttrCurrentCondition `json:"current_condition"`
-	NearestArea []struct {
+	NearestArea      []struct {
 		AreaName []struct {
 			Value string `json:"value"`
 		} `json:"areaName"`
@@ -75,7 +77,6 @@ type WttrResponse struct {
 type GitHubRelease struct {
 	TagName string `json:"tag_name"`
 }
-
 
 // clearScreen (Sin cambios)
 func clearScreen() {
@@ -167,6 +168,7 @@ func printHelp() {
 	fmt.Println(cSystem("--- Ayuda: Comandos Disponibles ---"))
 	fmt.Println(cPrompt("  /<petición> ") + cIA("- Pide un comando de shell (ej. /listar archivos .go)"))
 	fmt.Println(cPrompt("  /chat <pregunta> ") + cIA("- Inicia una conversación de chat (ej. /chat ¿qué es Docker?)"))
+	fmt.Println(cPrompt("  /reset       ") + cIA("- Limpia el historial de la conversación de /chat."))
 	fmt.Println(cPrompt("  /tiempo <lugar>  ") + cIA("- Consulta el tiempo (sin API key) (ej. /tiempo Madrid)"))
 	fmt.Println(cPrompt("  /traducir <idioma> <texto> ") + cIA("- Traduce un texto (ej. /traducir fr hola)"))
 	fmt.Println(cPrompt("  /model       ") + cIA("- Vuelve a mostrar el selector de modelos."))
@@ -298,7 +300,6 @@ func checkVersion() {
 
 }
 
-
 // --- main (¡ACTUALIZADO!) ---
 func main() {
 	loadLogos()
@@ -316,7 +317,7 @@ func main() {
 	defer state.Close()
 	state.SetCtrlCAborts(true)
 
-	// --- ¡NUEVO! LÓGICA DE AUTO-COMPLETADO ---
+	// --- LÓGICA DE AUTO-COMPLETADO --- (Sin cambios)
 	state.SetCompleter(func(line string) (c []string) {
 		// --- 1. Definir comandos ---
 		// Comandos internos de la IA y comandos de shell comunes
@@ -324,6 +325,7 @@ func main() {
 			// Comandos IA
 			"/help",
 			"/chat ",
+			"/reset", // <-- ¡Añadido!
 			"/tiempo ",
 			"/traducir ",
 			"/model",
@@ -347,13 +349,12 @@ func main() {
 			"nano ",
 			"vim ",
 			"less ",
-			"go ", // <-- Ejemplos añadidos
+			"go ",
 			"git ",
 			"docker ",
 		}
 
 		// --- 2. Sugerencias de comandos ---
-		// (La lógica original de sugerir comandos si la línea coincide)
 		for _, cmd := range commands {
 			if strings.HasPrefix(cmd, line) {
 				c = append(c, cmd)
@@ -361,7 +362,6 @@ func main() {
 		}
 
 		// --- 3. Autocompletar rutas/archivos ---
-
 		// NO autocompletar rutas para estos comandos específicos
 		if strings.HasPrefix(line, "/chat ") ||
 			strings.HasPrefix(line, "/tiempo ") ||
@@ -369,48 +369,36 @@ func main() {
 				return c // Devuelve solo las sugerencias de comandos (si las hay)
 			}
 
-			// --- ¡NUEVA LÓGICA GENERALIZADA DE ARCHIVOS! ---
-			// Para 'cd' y TODOS los demás comandos, intentamos autocompletar archivos/rutas.
-			// Encontramos la parte de la ruta a completar (lo que va después del último espacio)
+			var pathPrefix string
+			var partToComplete string
 
-			var pathPrefix string     // La línea hasta el último espacio (ej. "ls -l ")
-	var partToComplete string // La parte a 'glob' (ej. "mi_dir/")
+			lastSpace := strings.LastIndex(line, " ")
+			if lastSpace == -1 {
+				pathPrefix = ""
+				partToComplete = line
+			} else {
+				pathPrefix = line[:lastSpace+1]
+				partToComplete = line[lastSpace+1:]
+			}
 
-	lastSpace := strings.LastIndex(line, " ")
-	if lastSpace == -1 {
-		// Sin espacios. (ej. "mi_")
-		pathPrefix = ""
-		partToComplete = line
-	} else {
-		// Con espacios. (ej. "ls -l mi_")
-		pathPrefix = line[:lastSpace+1] // "ls -l "
-		partToComplete = line[lastSpace+1:] // "mi_"
-	}
+			globPattern := partToComplete + "*"
+			if strings.HasPrefix(globPattern, "~/") {
+				home, err := os.UserHomeDir()
+				if err == nil {
+					globPattern = filepath.Join(home, strings.TrimPrefix(globPattern, "~/"))
+				}
+			}
 
-	// Construimos el patrón de glob
-	globPattern := partToComplete + "*"
+			files, _ := filepath.Glob(globPattern)
+			for _, f := range files {
+				if info, err := os.Stat(f); err == nil && info.IsDir() {
+					c = append(c, pathPrefix+f+"/")
+				} else {
+					c = append(c, pathPrefix+f)
+				}
+			}
 
-	// (Manejar el caso ~)
-	if strings.HasPrefix(globPattern, "~/") {
-		home, err := os.UserHomeDir()
-		if err == nil {
-			globPattern = filepath.Join(home, strings.TrimPrefix(globPattern, "~/"))
-		}
-	}
-
-	files, _ := filepath.Glob(globPattern)
-	for _, f := range files {
-		// Si es un directorio, añadir "/"
-		if info, err := os.Stat(f); err == nil && info.IsDir() {
-			// Añadimos la ruta completa (pathPrefix) + el archivo/dir encontrado
-			c = append(c, pathPrefix+f+"/")
-		} else {
-			// Es un archivo
-			c = append(c, pathPrefix+f)
-		}
-	}
-
-	return
+			return
 	})
 	// --- FIN DE LÓGICA DE AUTO-COMPLETADO ---
 
@@ -423,7 +411,6 @@ func main() {
 		}
 	}
 	defer saveHistory(state)
-
 
 	selectedModel := chooseModel(client, state)
 
@@ -439,10 +426,6 @@ func main() {
 
 	var alwaysExecute bool = false
 	var isFirstLoop bool = true
-
-	// --- ¡CORRECCIÓN! Las líneas que usaban GetHistory/SetHistory han sido eliminadas ---
-	// (La "pega" es que el '1' de la selección de modelo estará en el historial)
-
 
 	for {
 		select {
@@ -529,8 +512,6 @@ func main() {
 			printHeader()
 			fmt.Println(cSystem("\n  Consejo: Escribe /help para ver todos los comandos."))
 			isFirstLoop = true
-
-			// --- ¡CORRECCIÓN! Las líneas que usaban GetHistory/SetHistory han sido eliminadas ---
 			continue
 
 		} else if input == "/ask" {
@@ -543,6 +524,14 @@ func main() {
 			printHelp()
 			continue
 
+			// --- ¡NUEVO! Comando /reset ---
+		} else if input == "/reset" {
+			chatHistory = nil // Limpia el historial
+			fmt.Println(cSystem("IA> Historial de chat limpiado."))
+			fmt.Println()
+			continue
+			// --- Fin ---
+
 		} else if strings.HasPrefix(input, "/tiempo ") {
 			prompt := strings.TrimPrefix(input, "/tiempo ")
 			prompt = strings.TrimSpace(prompt)
@@ -553,7 +542,7 @@ func main() {
 			}
 			handleWeatherCommand(client, selectedModel, prompt)
 
-		} else if strings.HasPrefix(input, "/traducir ") { // --- ¡COMANDO TRADUCIR AÑADIDO! ---
+		} else if strings.HasPrefix(input, "/traducir ") {
 			prompt := strings.TrimPrefix(input, "/traducir ")
 			prompt = strings.TrimSpace(prompt)
 			if prompt == "" {
@@ -571,7 +560,7 @@ func main() {
 				fmt.Println()
 				continue
 			}
-			handleChatCommand(client, selectedModel, prompt)
+			handleChatCommand(client, selectedModel, prompt) // ¡Llama a la nueva función!
 
 		} else if strings.HasPrefix(input, "/") {
 			prompt := strings.TrimPrefix(input, "/")
@@ -591,52 +580,32 @@ func main() {
 
 		} else {
 			// --- INICIO DE DEPURACIÓN INTELIGENTE DE ERRORES ---
-
-			// --- ¡NUEVO! INYECTAR COLOR EN COMANDOS ---
-			finalInput := input // Por defecto, es el mismo comando
-
-			// Usamos tu función para decidir si inyectar --color=always
+			finalInput := input
 			if shouldColorOutput(input) {
 				firstSpace := strings.Index(input, " ")
 				if firstSpace == -1 {
-					// Comando sin argumentos (ej. "ls")
 					finalInput = input + " --color=always"
 				} else {
-					// Comando con argumentos (ej. "ls -l")
 					cmdName := input[:firstSpace]
 					args := input[firstSpace:]
 					finalInput = cmdName + " --color=always" + args
 				}
 			}
-			// --- FIN DE INYECCIÓN DE COLOR ---
 
-
-			// 1. Ejecutar el comando de Shell
-			// ¡Usamos finalInput en lugar de input!
 			cmd := exec.Command("bash", "-c", finalInput)
-
-			// Capturar tanto stdout como stderr
 			var stdoutBuf, stderrBuf bytes.Buffer
-			cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf) // Muestra y captura STDOUT
-			cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf) // Muestra y captura STDERR
+			cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
+			cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 
-			fmt.Println() // Espacio antes de la ejecución
+			fmt.Println()
+			err := cmd.Run()
 
-			err := cmd.Run() // Ejecuta el comando
-
-			// 2. Comprobar si falló (código de salida distinto de 0)
 			if err != nil {
-				// El comando falló. La salida de error está en stderrBuf.
 				errorOutput := stderrBuf.String()
-
-				fmt.Println() // Espacio de aire
+				fmt.Println()
 				fmt.Println(cSystem("--- Análisis de Error de Shell ---"))
-
-				// 3. Llamar a la función de depuración
 				handleDebugCommand(client, selectedModel, errorOutput)
 			}
-
-			// Si no falló, o si la depuración terminó, añade un espacio
 			fmt.Println()
 			// --- FIN DE DEPURACIÓN INTELIGENTE DE ERRORES! ---
 		}
@@ -718,7 +687,6 @@ func handleWeatherCommand(client *api.Client, modelName string, location string)
 		}
 	}
 
-
 	contextSnippet := fmt.Sprintf(
 		"Contexto del tiempo para %s:\nTemperatura: %s°C\nSensación térmica: %s°C\nDescripción: %s\n",
 		locName,
@@ -769,12 +737,23 @@ func handleWeatherCommand(client *api.Client, modelName string, location string)
 	fmt.Println()
 }
 
-
-// handleChatCommand (Sin cambios)
+// --- handleChatCommand (¡REESCRITO CON CONTEXTO!) ---
 func handleChatCommand(client *api.Client, modelName string, userPrompt string) {
-	systemPrompt := "Eres un asistente servicial, amigable y conversacional. Responde a las preguntas del usuario."
-	fullPrompt := fmt.Sprintf("%s\n\nUsuario: %s", systemPrompt, userPrompt)
+	// 1. Añadir system prompt si es una nueva conversación
+	if len(chatHistory) == 0 {
+		chatHistory = append(chatHistory, api.Message{
+			Role:    "system",
+			Content: "Eres un asistente servicial, amigable y conversacional. Responde a las preguntas del usuario.",
+		})
+	}
 
+	// 2. Añadir el mensaje actual del usuario al historial
+	chatHistory = append(chatHistory, api.Message{
+		Role:    "user",
+		Content: userPrompt,
+	})
+
+	// 3. Configurar contexto y cancelación (igual que antes)
 	ctx, cancel := context.WithCancel(context.Background())
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT)
@@ -788,40 +767,62 @@ func handleChatCommand(client *api.Client, modelName string, userPrompt string) 
 
 	fmt.Println(cIA("IA> Pensando...") + cSystem(" (Presiona Ctrl+C para cancelar)"))
 
+	// 4. Crear la petición de CHAT (en lugar de Generate)
 	stream := true
-	req := &api.GenerateRequest{
-		Model:  modelName,
-		Prompt: fullPrompt,
-		Stream: &stream,
+	req := &api.ChatRequest{
+		Model:    modelName,
+		Messages: chatHistory, // ¡Enviar el historial completo!
+		Stream:   &stream,
 	}
 
 	firstChunk := true
+	var fullResponse strings.Builder // Para acumular la respuesta
 
-	streamHandler := func(r api.GenerateResponse) error {
+	// 5. Definir el stream handler (¡recibe api.ChatResponse!)
+	streamHandler := func(r api.ChatResponse) error {
 		if firstChunk {
 			fmt.Print("\r" + cIA("IA: ") + "    \r")
 			firstChunk = false
 		}
-		fmt.Print(r.Response)
+		// Imprimir el trozo de contenido
+		fmt.Print(r.Message.Content)
+		// Acumular el trozo de contenido
+		fullResponse.WriteString(r.Message.Content)
 		return nil
 	}
 
-	err := client.Generate(ctx, req, streamHandler)
+	// 6. Llamar a client.Chat
+	err := client.Chat(ctx, req, streamHandler)
 
+	// 7. Manejar el final y guardar la respuesta en el historial
 	if err != nil {
 		if err == context.Canceled {
 			fmt.Print(cError("\n[Stream cancelado]"))
+			// ¡Importante! Si se cancela, quitamos el último mensaje del usuario
+			// para que no se "pegue" a la siguiente petición.
+			if len(chatHistory) > 0 {
+				chatHistory = chatHistory[:len(chatHistory)-1]
+			}
 		} else {
 			fmt.Println(cError(fmt.Sprintf("\nError al generar respuesta de chat: %v", err)))
+			// También quitar en caso de error
+			if len(chatHistory) > 0 {
+				chatHistory = chatHistory[:len(chatHistory)-1]
+			}
 		}
+	} else {
+		// Si todo fue bien, añadir la respuesta completa del asistente al historial
+		chatHistory = append(chatHistory, api.Message{
+			Role:    "assistant",
+			Content: fullResponse.String(),
+		})
 	}
 
 	fmt.Println()
 }
 
-// --- ¡NUEVA FUNCIÓN DE TRADUCCIÓN! ---
+// handleTranslateCommand (Sin cambios)
 func handleTranslateCommand(client *api.Client, modelName string, userPrompt string) {
-	// 1. Parsear la entrada (ej. "fr hola mundo")
 	parts := strings.SplitN(userPrompt, " ", 2)
 	if len(parts) < 2 {
 		fmt.Println(cError("Error de formato. Uso: /traducir <idioma> <texto>"))
@@ -832,13 +833,11 @@ func handleTranslateCommand(client *api.Client, modelName string, userPrompt str
 	targetLang := parts[0]
 	textToTranslate := parts[1]
 
-	// 2. Crear el prompt de sistema
 	systemPrompt := fmt.Sprintf("Eres un traductor experto. Traduce el texto del usuario al idioma '%s'. Responde ÚNICAMENTE con la traducción, sin explicaciones ni frases introductorias.", targetLang)
 	fullPrompt := textToTranslate
 
 	fmt.Println(cIA("IA> Traduciendo..."))
 
-	// 3. Llamar a Ollama (podemos reusar la lógica de streaming de /chat)
 	ctx, cancel := context.WithCancel(context.Background())
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT)
@@ -851,7 +850,7 @@ func handleTranslateCommand(client *api.Client, modelName string, userPrompt str
 	stream := true
 	req := &api.GenerateRequest{
 		Model:  modelName,
-		System: systemPrompt, // ¡Usamos el campo System!
+		System: systemPrompt,
 		Prompt: fullPrompt,
 		Stream: &stream,
 	}
@@ -876,7 +875,6 @@ func handleTranslateCommand(client *api.Client, modelName string, userPrompt str
 	}
 	fmt.Println()
 }
-
 
 // handleIACommandAuto (Sin cambios)
 func handleIACommandAuto(client *api.Client, modelName string, userPrompt string) {
@@ -1005,10 +1003,8 @@ func handleIACommandConfirm(client *api.Client, state *liner.State, modelName st
 	}
 }
 
-// --- ¡NUEVA FUNCIÓN! handleDebugCommand ---
-// Captura el error de shell y pide una explicación a la IA
+// handleDebugCommand (Sin cambios)
 func handleDebugCommand(client *api.Client, modelName string, errorOutput string) {
-	// Limitar el errorOutput para que no sea demasiado grande para el prompt
 	if len(errorOutput) > 2048 {
 		errorOutput = errorOutput[:2048] + "\n... (Error truncado)"
 	}
@@ -1017,7 +1013,6 @@ func handleDebugCommand(client *api.Client, modelName string, errorOutput string
 
 	fmt.Println(cIA("IA> Analizando error...") + cSystem(" (Presiona Ctrl+C para cancelar)"))
 
-	// Lógica de cancelación
 	ctx, cancel := context.WithCancel(context.Background())
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT)
@@ -1052,11 +1047,10 @@ func handleDebugCommand(client *api.Client, modelName string, errorOutput string
 		fmt.Print(cError("\n[Análisis cancelado]"))
 	}
 
-	fmt.Println() // Salto de línea después del análisis
+	fmt.Println()
 }
 
-// --- shouldColorOutput ---
-// Determina si el comando debería forzar salida con color (por ejemplo: ls, grep, diff)
+// shouldColorOutput (Sin cambios)
 func shouldColorOutput(cmd string) bool {
 	cmd = strings.TrimSpace(cmd)
 	if cmd == "" {
@@ -1067,7 +1061,6 @@ func shouldColorOutput(cmd string) bool {
 		"ls", "grep", "diff", "git", "kubectl", "docker", "tree",
 	}
 
-	// Comprobamos si el comando empieza por alguno de los anteriores
 	for _, c := range colorCommands {
 		if strings.HasPrefix(cmd, c+" ") || cmd == c {
 			return true
