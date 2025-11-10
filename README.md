@@ -13,14 +13,26 @@ Un shell interactivo en Go que utiliza el poder de los modelos de Ollama para co
 
 ## 💡 Características Principales
 
-* **Traducción de Comandos:** Escribe `/<tu consulta>` (ej. `/encontrar archivos .log`) y la IA generará el comando de shell.
-* **Chat General:** Usa `/chat <pregunta>` (ej. `/chat ¿qué es Docker?`) para tener una conversación normal con la IA.
-* **Traducción Rápida:** Usa `/traducir <idioma> <texto>` para traducciones instantáneas (ej. `/traducir en hola`).
-* **Ejecución Segura:** Confirma cada comando sugerido por la IA con un simple `[s/N/X]`.
-* **Modo Auto-Ejecución:** Activa el modo de "confianza" (`X`) para ejecutar comandos automáticamente (se desactiva con `/ask`).
-* **Selector de Modelos Dinámico:** Cambia de modelo de IA (`llama3`, `codellama`, etc.) en cualquier momento con el comando `/model`.
-* **Interfaz Pulida:** Logos dinámicos en degradado de color y un shell con historial de comandos (flechas arriba/abajo).
-* **Cancelación de Stream:** Presiona `Ctrl+C` mientras la IA responde en modo `/chat` para cancelar la respuesta.
+Historial Semántico (¡Nuevo!): Usa /buscar <intención> (ej. /buscar reiniciar el servidor) para encontrar comandos en tu historial basándote en el significado, no en el texto exacto. El sistema utiliza embeddings para encontrar el comando más relevante que hayas ejecutado con éxito en el pasado.
+
+Chat con Memoria (¡Nuevo!): El modo /chat <pregunta> ahora recuerda el contexto de tu conversación. Puedes hacer preguntas de seguimiento y la IA recordará lo que se dijo antes. Usa /reset para limpiar la memoria del chat.
+
+Depuración Inteligente: Si un comando de shell falla, la IA lo analizará automáticamente y te explicará la causa del error y cómo solucionarlo.
+
+Traducción de Comandos: Escribe /<tu consulta> (ej. /encontrar archivos .log) y la IA generará el comando de shell.
+
+Traducción Rápida: Usa /traducir <idioma> <texto> para traducciones instantáneas (ej. /traducir en hola).
+
+Ejecución Segura: Confirma cada comando sugerido por la IA con un simple [s/N/X].
+
+Modo Auto-Ejecución: Activa el modo de "confianza" (X) para ejecutar comandos automáticamente (se desactiva con /ask).
+
+Selector de Modelos Dinámico: Cambia de modelo de IA (llama3, codellama, etc.) en cualquier momento con el comando /model.
+
+Interfaz Pulida: Logos dinámicos, un shell con historial (flechas arriba/abajo), autocompletado de comandos/rutas y output de ls coloreado.
+
+Cancelación de Stream: Presiona Ctrl+C mientras la IA responde en modo /chat para cancelar la respuesta.
+
 
 ## 🚀 Instalación (Recomendado para Linux)
 
@@ -73,7 +85,9 @@ Si ya tienes Ollama y solo quieres ejecutar el código fuente:
 | Comando | Acción |
 | :--- | :--- |
 | `/<petición>` | Envía una consulta de shell a la IA (ej. `/listar archivos .go`). |
+| `/buscar <intención> ` | Busca en el historial semántico (ej. `/buscar contar archivos go`). |
 | `/chat <pregunta>` | Inicia una conversación de chat (ej. `/chat ¿qué es Docker?`). |
+| `/reset` | Limpia el historial de la conversación de `/chat`. |
 | `/traducir <idioma> <texto>` | Traduce un texto (ej. `/traducir fr hola`). |
 | `/model` | Vuelve a mostrar el menú de selección de modelos. |
 | `/ask` | Desactiva el modo de auto-ejecución. |
