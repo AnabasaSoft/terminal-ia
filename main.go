@@ -32,7 +32,7 @@ import (
 
 // --- Constantes del Programa ---
 const (
-	currentVersion       = "v22.6" // ¡ACTUALIZADO!
+	currentVersion       = "v22.7" // ¡ACTUALIZADO!
 	repoOwner            = "danitxu79"
 	repoName             = "terminal-ia"
 	historyFileName      = ".terminal_ia_history"
@@ -1194,10 +1194,10 @@ func addCommandToSemanticHistory(client *api.Client, model string, command strin
 	saveSemanticHistory() // Guardar el archivo
 }
 
-// handleSearchCommand (El proceso de "Recuperación")
+// handleSearchCommand (ACTUALIZADO: Muestra y permite seleccionar el Top 3)
 // Devuelve un bool 'setAuto' (igual que handleIACommandConfirm)
 func handleSearchCommand(client *api.Client, state *liner.State, model string, query string) bool {
-	fmt.Println(cIA("IA> Buscando en historial semántico..."))
+	fmt.Println(cIA("IA> Buscando en historial semántico...") + cSystem(" (Presiona Ctrl+C para cancelar)"))
 
 	if len(semanticHistory) == 0 {
 		fmt.Println(cSystem("IA> No hay historial semántico. Ejecuta algunos comandos primero."))
@@ -1212,82 +1212,123 @@ func handleSearchCommand(client *api.Client, state *liner.State, model string, q
 		return false
 	}
 
-	// 2. Buscar por similitud
-	var bestScore float64 = -1.0
-	var bestCommand string = ""
+	// Estructura para almacenar los resultados del Top 3
+	type result struct {
+		Command string
+		Score   float64
+	}
+	// Inicializar Top 3 con un score muy bajo
+	topResults := make([]result, 3)
+	for i := range topResults {
+		topResults[i] = result{Score: -1.0}
+	}
 
+	// 2. Buscar por similitud y gestionar el Top 3
 	semanticHistoryLock.Lock()
 	for _, entry := range semanticHistory {
 		score := cosineSimilarity(queryEmbedding, entry.Embedding)
-		if score > bestScore {
-			bestScore = score
-			bestCommand = entry.Command
+
+		// Lógica simple de inserción ordenada para mantener el Top 3
+		for i := 0; i < 3; i++ {
+			if score > topResults[i].Score {
+				// Mover los elementos inferiores
+				for j := 2; j > i; j-- {
+					topResults[j] = topResults[j-1]
+				}
+				// Insertar el nuevo resultado
+				topResults[i] = result{Command: entry.Command, Score: score}
+				break
+			}
 		}
 	}
 	semanticHistoryLock.Unlock()
 
-	if bestCommand == "" {
-		fmt.Println(cSystem("IA> No se encontraron resultados similares."))
+	// 3. Filtrar resultados no válidos (score -1.0)
+	var validResults []result
+	for _, res := range topResults {
+		if res.Score > 0.1 { // Un umbral mínimo para evitar comandos irrelevantes
+			validResults = append(validResults, res)
+		}
+	}
+
+	if len(validResults) == 0 {
+		fmt.Println(cSystem("IA> No se encontraron resultados similares (similitud muy baja)."))
 		fmt.Println()
 		return false
 	}
 
-	// 3. Mostrar y pedir confirmación (lógica copiada de handleIACommandConfirm)
+	// 4. Mostrar el Top N (validResults) y pedir selección
 	fmt.Println(cSystem("---"))
-	fmt.Println(cIA(fmt.Sprintf("IA> Comando encontrado (Similitud: %.2f%%):", bestScore*100)))
-	fmt.Printf("\n%s\n\n", bestCommand)
+	fmt.Println(cIA("IA> Comandos encontrados:"))
+
+	for i, res := range validResults {
+		fmt.Printf(cPrompt("  [%d]: ")+"%s %s\n", i+1, res.Command, cSystem(fmt.Sprintf("(Similitud: %.2f%%)", res.Score*100)))
+	}
 	fmt.Println(cSystem("---"))
 
-	prompt := "IA> ¿Ejecutar? [s/N/X (Siempre)]: "
-	confirmacion, err := state.Prompt(prompt)
-	if err != nil {
-		if err == io.EOF || err == liner.ErrPromptAborted {
+	// 5. Bucle de selección
+	var selectedCommand string
+	var finalConfirmation string
+
+	for {
+		prompt := "IA> ¿Ejecutar [1-" + strconv.Itoa(len(validResults)) + "/N/X (Siempre)]?: "
+		confirmacion, err := state.Prompt(prompt)
+
+		if err != nil || confirmacion == "n" || confirmacion == "N" || err == io.EOF || err == liner.ErrPromptAborted {
 			fmt.Println(cSystem("\nCancelado."))
 			return false
 		}
-		fmt.Println(cError(fmt.Sprintf("Error al leer la confirmación: %v", err)))
-		return false
-	}
-	state.AppendHistory(confirmacion)
-	confirmacion = strings.TrimSpace(strings.ToLower(confirmacion))
 
-	switch confirmacion {
-		case "s":
-			fmt.Println(cSystem("IA> Ejecutando..."))
-			fmt.Println()
-			fmt.Println(cSystem("ejecutando:"))
-			fmt.Println(bestCommand)
-			fmt.Println()
-			cmd := exec.Command("bash", "-c", bestCommand)
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
-				fmt.Fprintln(os.Stderr, cError("IA> El comando falló."))
-				// (Podríamos llamar a handleDebugCommand aquí también)
-			}
-			fmt.Println()
-			return false
-		case "x":
-			fmt.Println(cSystem("IA> Ejecutando y activando modo 'auto'..."))
-			fmt.Println()
-			fmt.Println(cSystem("ejecutando:"))
-			fmt.Println(bestCommand)
-			fmt.Println()
-			cmd := exec.Command("bash", "-c", bestCommand)
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
-				fmt.Fprintln(os.Stderr, cError("IA> El comando falló."))
-			}
-			fmt.Println()
-			fmt.Println(cSystem("IA> Modo auto-ejecución activado. Escribe '/ask' para desactivarlo."))
-			fmt.Println()
-			return true // Devuelve true para activar el modo 'auto'
-		default:
-			fmt.Println(cSystem("IA> Cancelado."))
-			fmt.Println()
-			return false
+		state.AppendHistory(confirmacion)
+		finalConfirmation = confirmacion
+		confirmacion = strings.TrimSpace(confirmacion)
+
+		// 5.1 Caso "X" (Siempre)
+		if strings.ToLower(confirmacion) == "x" {
+			// Usamos la opción 1 como el comando a ejecutar si el usuario selecciona X directamente.
+			selectedCommand = validResults[0].Command
+
+			// Caemos en el switch de ejecución de abajo.
+			break
+		}
+
+		// 5.2 Caso Numérico
+		choice, parseErr := strconv.Atoi(confirmacion)
+		if parseErr == nil && choice >= 1 && choice <= len(validResults) {
+			selectedCommand = validResults[choice-1].Command
+			break
+		}
+
+		fmt.Println(cError("Selección inválida. Introduce el número de la opción, 'N' o 'X'."))
 	}
+
+	// 6. Ejecutar el comando seleccionado
+	fmt.Println(cSystem("IA> Ejecutando..."))
+
+	// Aquí usamos el mismo switch de ejecución de handleIACommandConfirm
+	setAuto := false
+	if strings.ToLower(strings.TrimSpace(finalConfirmation)) == "x" {
+		setAuto = true
+	}
+
+	fmt.Println()
+	fmt.Println(cSystem("ejecutando:"))
+	fmt.Println(selectedCommand)
+	fmt.Println()
+
+	cmd := exec.Command("bash", "-c", selectedCommand)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, cError("IA> El comando falló."))
+	}
+	fmt.Println()
+
+	if setAuto {
+		fmt.Println(cSystem("IA> Modo auto-ejecución activado. Escribe '/ask' para desactivarlo."))
+	}
+
+	return setAuto
 }
 
 // getDirectorySnippet escanea el directorio actual y devuelve un string con los archivos/dirs relevantes.
