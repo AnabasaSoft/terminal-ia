@@ -39,6 +39,7 @@ const (
 	embeddingHistoryFile = ".terminal_ia_embeddings.json"
 	debugSystemPrompt    = "Eres un experto en depuración de comandos de Linux. Analiza el siguiente error de terminal (stderr), explica brevemente por qué ocurrió y proporciona una solución concisa que el usuario pueda copiar/pegar."
 	embeddingModelName   = "nomic-embed-text"
+	chatHistoryFile      = ".terminal_ia_chat_history.json"
 )
 
 // --- Estructuras y Variables Globales de Estilo ---
@@ -63,6 +64,11 @@ var (
 	semanticHistory     []SemanticHistoryEntry
 	semanticHistoryPath string
 	semanticHistoryLock sync.Mutex // Mutex para proteger el acceso al historial
+
+	// AÑADIR ESTAS DOS LÍNEAS:
+	historyPath     string      // Para el historial de liner
+	chatHistoryPath string      // Para el historial de chat
+	chatHistoryLock sync.Mutex
 )
 
 // Struct para Historial Semántico
@@ -385,7 +391,8 @@ func saveHistory(state *liner.State) {
 		fmt.Fprintln(os.Stderr, cError(fmt.Sprintf("Error al encontrar el home dir para guardar historial: %v", err)))
 		return
 	}
-	historyPath := filepath.Join(home, historyFileName)
+	// --- ¡DEFINICIÓN AÑADIDA! ---
+	historyPath = filepath.Join(home, historyFileName)
 
 	f, err := os.Create(historyPath)
 	if err != nil {
@@ -530,7 +537,7 @@ func main() {
 	home, err := os.UserHomeDir()
 	if err == nil {
 		// Cargar historial de liner
-		historyPath := filepath.Join(home, historyFileName)
+		historyPath = filepath.Join(home, historyFileName)
 		if f, err := os.Open(historyPath); err == nil {
 			state.ReadHistory(f)
 			f.Close()
@@ -539,6 +546,12 @@ func main() {
 		semanticHistoryPath = filepath.Join(home, embeddingHistoryFile)
 		loadSemanticHistory()
 		fmt.Printf(cSystem("Cargados %d comandos del historial semántico.\n"), len(semanticHistory))
+		chatHistoryPath = filepath.Join(home, chatHistoryFile)
+		loadChatHistory()
+		if len(chatHistory) > 1 {
+			// El historial > 1 significa que hay mensajes de usuario/asistente (sin contar el system prompt)
+			fmt.Printf(cSystem("Reanudando conversación de chat. (Mensajes cargados: %d)\n"), len(chatHistory)-1)
+		}
 	}
 	defer saveHistory(state)
 
@@ -782,6 +795,7 @@ func main() {
 		}
 	}
 
+	saveChatHistory()
 	fmt.Println(cSystem("\n¡Adiós!"))
 }
 
@@ -909,7 +923,7 @@ func handleChatCommand(client *api.Client, modelName string, userPrompt string) 
 	if len(chatHistory) == 0 {
 		chatHistory = append(chatHistory, api.Message{
 			Role:    "system",
-			Content: "Eres un asistente servicial, amigable y conversacional. Responde a las preguntas del usuario.",
+			Content: "Eres un asistente de IA para terminal. Sé directo, conciso y técnico. Céntrate en la solicitud. Evita saludos largos o florituras innecesarias.",
 		})
 	}
 	chatHistory = append(chatHistory, api.Message{
@@ -1249,6 +1263,58 @@ func getEmbedding(client *api.Client, text string, model string) ([]float64, err
 		return nil, err
 	}
 	return resp.Embedding, nil
+}
+
+// --- Funciones de Persistencia del Historial de Chat ---
+
+// loadChatHistory carga el historial de chat desde el archivo JSON.
+func loadChatHistory() {
+	chatHistoryLock.Lock()
+	defer chatHistoryLock.Unlock()
+
+	if _, err := os.Stat(chatHistoryPath); os.IsNotExist(err) {
+		chatHistory = make([]api.Message, 0)
+		return // Archivo no existe, empezamos un nuevo historial
+	}
+
+	data, err := os.ReadFile(chatHistoryPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, cError(fmt.Sprintf("Error al leer historial de chat: %v", err)))
+		chatHistory = make([]api.Message, 0)
+		return
+	}
+
+	// NOTA: Si el archivo está vacío (0 bytes), json.Unmarshal fallará.
+	if len(data) == 0 {
+		chatHistory = make([]api.Message, 0)
+		return
+	}
+
+	if err := json.Unmarshal(data, &chatHistory); err != nil {
+		fmt.Fprintln(os.Stderr, cError(fmt.Sprintf("Error al parsear historial de chat (se reiniciará): %v", err)))
+		chatHistory = make([]api.Message, 0)
+	}
+}
+
+// saveChatHistory guarda el historial de chat en el archivo JSON.
+func saveChatHistory() {
+	chatHistoryLock.Lock()
+	defer chatHistoryLock.Unlock()
+
+	// Solo guardar si hay algo en el historial que valga la pena (ej. más que solo el system prompt inicial)
+	if len(chatHistory) <= 1 {
+		os.Remove(chatHistoryPath) // Si está vacío o solo tiene el system prompt, lo borramos
+		return
+	}
+
+	data, err := json.MarshalIndent(chatHistory, "", "  ")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, cError(fmt.Sprintf("Error al serializar historial de chat: %v", err)))
+		return
+	}
+	if err := os.WriteFile(chatHistoryPath, data, 0644); err != nil {
+		fmt.Fprintln(os.Stderr, cError(fmt.Sprintf("Error al guardar historial de chat: %v", err)))
+	}
 }
 
 // loadSemanticHistory carga los embeddings desde el archivo JSON
