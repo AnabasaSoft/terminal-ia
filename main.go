@@ -32,14 +32,14 @@ import (
 
 // --- Constantes del Programa ---
 const (
-	currentVersion       = "v24.0"
+	currentVersion       = "v25.0" // Persistencia de Chat + Embeddings Dedicados
 	repoOwner            = "danitxu79"
 	repoName             = "terminal-ia"
 	historyFileName      = ".terminal_ia_history"
 	embeddingHistoryFile = ".terminal_ia_embeddings.json"
-	debugSystemPrompt    = "Eres un experto en depuración de comandos de Linux. Analiza el siguiente error de terminal (stderr), explica brevemente por qué ocurrió y proporciona una solución concisa que el usuario pueda copiar/pegar."
-	embeddingModelName   = "nomic-embed-text"
 	chatHistoryFile      = ".terminal_ia_chat_history.json"
+	debugSystemPrompt    = "Eres un experto en depuración de comandos de Linux. Analiza el siguiente error de terminal (stderr), explica brevemente por qué ocurrió y proporciona una solución concisa que el usuario pueda copiar/pegar."
+	embeddingModelName   = "nomic-embed-text" // Modelo dedicado para embeddings
 )
 
 // --- Estructuras y Variables Globales de Estilo ---
@@ -60,15 +60,15 @@ var (
 
 	// Historial de Chat y Semántico
 	chatHistory []api.Message
+	chatHistoryLock sync.Mutex // Mutex para proteger el chatHistory
 
 	semanticHistory     []SemanticHistoryEntry
 	semanticHistoryPath string
 	semanticHistoryLock sync.Mutex // Mutex para proteger el acceso al historial
 
-	// AÑADIR ESTAS DOS LÍNEAS:
-	historyPath     string      // Para el historial de liner
-	chatHistoryPath string      // Para el historial de chat
-	chatHistoryLock sync.Mutex
+	// Variables de Ruta Globales (Corregidas)
+	historyPath     string // Para el historial de liner
+	chatHistoryPath string // Para el historial de chat
 )
 
 // Struct para Historial Semántico
@@ -311,7 +311,7 @@ func chooseModel(client *api.Client, state *liner.State) string {
 
 	// --- Descarga de Emergencia para el Modelo de CHAT ---
 
-	// Filtramos temporalmente los modelos para ver si solo queda el de embeddings.
+	// Filtramos modelos de chat disponibles (excluyendo el de embeddings)
 	var currentChatModels []api.ListModelResponse
 	for _, model := range resp.Models {
 		if !strings.Contains(model.Name, embeddingModelName) {
@@ -386,13 +386,15 @@ func chooseModel(client *api.Client, state *liner.State) string {
 
 // saveHistory
 func saveHistory(state *liner.State) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, cError(fmt.Sprintf("Error al encontrar el home dir para guardar historial: %v", err)))
-		return
+	if _, err := os.Stat(historyPath); os.IsNotExist(err) {
+		// La ruta no existe o no se inicializó correctamente en main, la reconstruimos por seguridad.
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, cError(fmt.Sprintf("Error al encontrar el home dir para guardar historial: %v", err)))
+			return
+		}
+		historyPath = filepath.Join(home, historyFileName)
 	}
-	// --- ¡DEFINICIÓN AÑADIDA! ---
-	historyPath = filepath.Join(home, historyFileName)
 
 	f, err := os.Create(historyPath)
 	if err != nil {
@@ -536,17 +538,21 @@ func main() {
 
 	home, err := os.UserHomeDir()
 	if err == nil {
+		// Inicializar rutas globales
+		historyPath = filepath.Join(home, historyFileName) // ¡CORREGIDO: Asignación!
+		semanticHistoryPath = filepath.Join(home, embeddingHistoryFile)
+		chatHistoryPath = filepath.Join(home, chatHistoryFile) // ¡CORREGIDO: Asignación!
+
 		// Cargar historial de liner
-		historyPath = filepath.Join(home, historyFileName)
 		if f, err := os.Open(historyPath); err == nil {
 			state.ReadHistory(f)
 			f.Close()
 		}
 		// Cargar historial semántico
-		semanticHistoryPath = filepath.Join(home, embeddingHistoryFile)
 		loadSemanticHistory()
 		fmt.Printf(cSystem("Cargados %d comandos del historial semántico.\n"), len(semanticHistory))
-		chatHistoryPath = filepath.Join(home, chatHistoryFile)
+
+		// Cargar historial de chat
 		loadChatHistory()
 		if len(chatHistory) > 1 {
 			// El historial > 1 significa que hay mensajes de usuario/asistente (sin contar el system prompt)
@@ -798,6 +804,29 @@ func main() {
 	saveChatHistory()
 	fmt.Println(cSystem("\n¡Adiós!"))
 }
+
+// formatCommandForDisplay hace que los comandos largos sean más legibles
+// insertando saltos de línea y sangría para pipes y encadenamientos.
+func formatCommandForDisplay(cmd string) string {
+	if cmd == "" {
+		return ""
+	}
+
+	// 1. Reemplazar pipes y encadenamientos con saltos de línea + tabulación
+
+	// Reemplazar pipes: '|' por ' |\n    ' (pipe, salto de línea, 4 espacios)
+	formatted := strings.ReplaceAll(cmd, "|", " |\n    ")
+
+		// Reemplazar encadenamiento: ';' por ';\n' (punto y coma, salto de línea)
+		formatted = strings.ReplaceAll(formatted, ";", ";\n")
+
+			// Reemplazar '&&' y '||' también.
+			formatted = strings.ReplaceAll(formatted, "&&", " &&\n    ")
+				formatted = strings.ReplaceAll(formatted, "||", " ||\n    ")
+
+					return strings.TrimSpace(formatted)
+}
+
 
 // sanitizeIACommand limpia y prepara el comando sugerido por la IA para su ejecución.
 func sanitizeIACommand(rawCmd string) string {
@@ -1076,7 +1105,7 @@ func handleIACommandAuto(client *api.Client, modelName string, userPrompt string
 	fmt.Println()
 }
 
-// handleIACommandConfirm
+// handleIACommandConfirm (Actualizado con formato de display)
 func handleIACommandConfirm(client *api.Client, state *liner.State, modelName string, userPrompt string) bool {
 	// 1. Obtener contexto de archivos
 	dirSnippet := getDirectorySnippet()
@@ -1111,56 +1140,221 @@ func handleIACommandConfirm(client *api.Client, state *liner.State, modelName st
 		return false
 	}
 	comandoSugerido := sanitizeIACommand(resp.Response)
-	fmt.Println(cSystem("---"))
-	fmt.Println(cIA("IA> Comando sugerido:"))
-	fmt.Printf("\n%s\n\n", comandoSugerido)
-	fmt.Println(cSystem("---"))
-	prompt := "IA> ¿Ejecutar? [s/N/x (Siempre)]: "
-	confirmacion, err := state.Prompt(prompt)
-	if err != nil {
-		if err == io.EOF || err == liner.ErrPromptAborted {
-			fmt.Println(cSystem("\nCancelado."))
+
+	// --- Visualización Formateada ---
+	formattedCommand := formatCommandForDisplay(comandoSugerido)
+		// --- Fin Visualización ---
+
+		fmt.Println(cSystem("---"))
+		fmt.Println(cIA("IA> Comando sugerido:"))
+		fmt.Printf("\n%s\n\n", formattedCommand) // Mostrar versión legible
+		fmt.Println(cSystem("---"))
+
+		prompt := "IA> ¿Ejecutar? [s/N/x (Siempre)]: "
+		confirmacion, err := state.Prompt(prompt)
+		if err != nil {
+			if err == io.EOF || err == liner.ErrPromptAborted {
+				fmt.Println(cSystem("\nCancelado."))
+				return false
+			}
+			fmt.Println(cError(fmt.Sprintf("Error al leer la confirmación: %v", err)))
 			return false
 		}
-		fmt.Println(cError(fmt.Sprintf("Error al leer la confirmación: %v", err)))
-		return false
+		state.AppendHistory(confirmacion)
+		confirmacion = strings.TrimSpace(strings.ToLower(confirmacion))
+		switch confirmacion {
+			case "s":
+				fmt.Println(cSystem("IA> Ejecutando..."))
+				fmt.Println()
+				fmt.Println(cSystem("ejecutando:"))
+				fmt.Println(comandoSugerido) // Ejecutar versión sin formatear
+				fmt.Println()
+				cmd := exec.Command("bash", "-c", comandoSugerido)
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+				if err := cmd.Run(); err != nil {
+					fmt.Fprintln(os.Stderr, cError("IA> El comando falló."))
+				}
+				fmt.Println()
+				return false
+			case "x":
+				fmt.Println(cSystem("IA> Ejecutando y activando modo 'auto'..."))
+				fmt.Println()
+				fmt.Println(cSystem("ejecutando:"))
+				fmt.Println(comandoSugerido) // Ejecutar versión sin formatear
+				fmt.Println()
+				cmd := exec.Command("bash", "-c", comandoSugerido)
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+				if err := cmd.Run(); err != nil {
+					fmt.Fprintln(os.Stderr, cError("IA> El comando falló."))
+				}
+				fmt.Println()
+				fmt.Println(cSystem("IA> Modo auto-ejecución activado. Escribe '/ask' para desactivarlo."))
+				return true
+			default:
+				fmt.Println(cSystem("IA> Cancelado."))
+				fmt.Println()
+				return false
+		}
+}
+
+// getDirectorySnippet escanea el directorio actual y devuelve un string con los archivos/dirs relevantes.
+func getDirectorySnippet() string {
+	// 1. Obtener archivos
+	files, err := os.ReadDir(".")
+	if err != nil {
+		return ""
 	}
-	state.AppendHistory(confirmacion)
-	confirmacion = strings.TrimSpace(strings.ToLower(confirmacion))
-	switch confirmacion {
-		case "s":
-			fmt.Println(cSystem("IA> Ejecutando..."))
-			fmt.Println()
-			fmt.Println(cSystem("ejecutando:"))
-			fmt.Println(comandoSugerido)
-			fmt.Println()
-			cmd := exec.Command("bash", "-c", comandoSugerido)
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
-				fmt.Fprintln(os.Stderr, cError("IA> El comando falló."))
+
+	var snippet strings.Builder
+	fileCount := 0
+
+	// Lista de nombres o extensiones a ignorar para mantener el contexto limpio
+	ignoreList := map[string]bool{
+		".git": true,
+		"vendor": true,
+		"node_modules": true,
+		"terminal-ia": true, // El binario compilado
+	}
+
+	// 2. Formatear los 10 elementos más relevantes
+	for _, file := range files {
+		name := file.Name()
+
+		// 2.1. Ignorar elementos
+		if strings.HasPrefix(name, ".") && name != "." && name != ".." {
+			// Ignorar archivos y directorios ocultos (excepto los que queremos ver)
+			if _, ok := ignoreList[name]; !ok {
+				continue
 			}
-			fmt.Println()
-			return false
-		case "x":
-			fmt.Println(cSystem("IA> Ejecutando y activando modo 'auto'..."))
-			fmt.Println()
-			fmt.Println(cSystem("ejecutando:"))
-			fmt.Println(comandoSugerido)
-			fmt.Println()
-			cmd := exec.Command("bash", "-c", comandoSugerido)
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
-				fmt.Fprintln(os.Stderr, cError("IA> El comando falló."))
-			}
-			fmt.Println()
-			fmt.Println(cSystem("IA> Modo auto-ejecución activado. Escribe '/ask' para desactivarlo."))
-			return true
-		default:
-			fmt.Println(cSystem("IA> Cancelado."))
-			fmt.Println()
-			return false
+		} else if _, ok := ignoreList[name]; ok {
+			continue
+		}
+
+		if fileCount >= 10 { // Limitar a 10 items
+			break
+		}
+
+		// 2.2. Añadir al snippet
+		if file.IsDir() {
+			snippet.WriteString(name)
+			snippet.WriteString("/")
+		} else {
+			snippet.WriteString(name)
+		}
+		snippet.WriteString(", ")
+		fileCount++
+	}
+
+	if snippet.Len() > 0 {
+		// Eliminar la última coma y espacio ", "
+		return strings.TrimSuffix(snippet.String(), ", ")
+	}
+	return ""
+}
+
+// handleConfigCommand gestiona el menú de configuración interactivo.
+func handleConfigCommand(client *api.Client, state *liner.State, currentModel string, currentAutoState bool) (string, bool) {
+	fmt.Println()
+
+	// Bucle principal del menú
+	for {
+		// --- Mostrar ambas versiones en la cabecera ---
+		versionInfo := fmt.Sprintf("Local: %s", currentVersion)
+		if githubLatestVersion != strings.TrimPrefix(strings.ToLower(currentVersion), "v") {
+			versionInfo += cError(fmt.Sprintf(" | GitHub: %s (¡ACTUALIZAR!)", githubLatestVersion))
+		} else {
+			versionInfo += cIA(" | GitHub: Al día")
+		}
+
+		fmt.Println(cSystem(fmt.Sprintf("--- Configuración de Terminal IA (%s) ---", versionInfo)))
+
+		// 1. Mostrar Estado Actual
+		autoState := cError("DESACTIVADO (Pedir Confirmación)")
+		if currentAutoState {
+			autoState = cIA("ACTIVADO (Auto-ejecución)")
+		}
+
+		fmt.Println(cPrompt(" [1] Modelo Actual: ") + cModel(currentModel))
+		fmt.Println(cPrompt(" [2] Modo Ejecución: ") + autoState)
+
+		// --- Mostrar ambas versiones en Opción 3 ---
+		fmt.Println(cPrompt(" [3] Versión:        ") + versionInfo)
+
+		fmt.Println(cPrompt(" [4] Limpiar Historial Semántico"))
+		fmt.Println(cPrompt(" [5] Limpiar Historial de Chat"))
+		fmt.Println(cPrompt(" [Q] Salir del Menú de Configuración"))
+		fmt.Println(cSystem("------------------------------------------------"))
+
+		prompt := "Selecciona una opción [1-5, Q]: "
+		input, err := state.Prompt(prompt)
+		if err != nil || strings.ToLower(input) == "q" || err == liner.ErrPromptAborted {
+			fmt.Println(cSystem("\nSaliendo del menú de configuración."))
+			return currentModel, currentAutoState // Salir sin cambios
+		}
+
+		state.AppendHistory(input)
+		input = strings.TrimSpace(strings.ToLower(input))
+		fmt.Println()
+
+		switch input {
+			case "1":
+				// Cambiar Modelo (Reutilizar chooseModel)
+				newModel := chooseModel(client, state)
+
+				// Recalentar y actualizar la UI
+				fmt.Println(cSystem("Recargando modelo..."))
+				warmUpModel(client, newModel)
+				clearScreen()
+				printLogo(newModel)
+				printHeader()
+				fmt.Println(cSystem("\n  Consejo: Escribe /help para ver todos los comandos."))
+
+				return newModel, currentAutoState
+
+			case "2":
+				// Alternar Modo Auto/Ask
+				newAutoState := !currentAutoState
+				if newAutoState {
+					fmt.Println(cIA("IA> Modo auto-ejecución ACTIVADO."))
+				} else {
+					fmt.Println(cSystem("IA> Modo auto-ejecución DESACTIVADO. Se pedirá confirmación."))
+				}
+				fmt.Println()
+				return currentModel, newAutoState
+
+			case "3":
+				// Mostrar Versión (Confirmar la información ya mostrada)
+				fmt.Println(cSystem(fmt.Sprintf("Terminal IA versión local: %s.", currentVersion)))
+				if githubLatestVersion != strings.TrimPrefix(strings.ToLower(currentVersion), "v") {
+					fmt.Println(cError(fmt.Sprintf("¡ADVERTENCIA! La versión de GitHub (%s) es más reciente.", githubLatestVersion)))
+				}
+				fmt.Println()
+
+			case "4":
+				// Limpiar Historial Semántico
+				// (Limpiar el archivo y el slice en memoria)
+				semanticHistoryLock.Lock()
+				semanticHistory = make([]SemanticHistoryEntry, 0)
+				semanticHistoryLock.Unlock()
+
+				// Sobreescribir el archivo con un array vacío
+				os.WriteFile(semanticHistoryPath, []byte("[]"), 0644)
+
+				fmt.Println(cIA("IA> Historial Semántico limpiado."))
+				fmt.Println()
+
+			case "5":
+				// Limpiar Historial de Chat (Reutilizar lógica de /reset)
+				chatHistory = nil
+				fmt.Println(cIA("IA> Historial de Chat limpiado."))
+				fmt.Println()
+
+			default:
+				fmt.Println(cError("Opción inválida. Inténtalo de nuevo."))
+				fmt.Println()
+		}
 	}
 }
 
@@ -1284,7 +1478,6 @@ func loadChatHistory() {
 		return
 	}
 
-	// NOTA: Si el archivo está vacío (0 bytes), json.Unmarshal fallará.
 	if len(data) == 0 {
 		chatHistory = make([]api.Message, 0)
 		return
@@ -1460,7 +1653,9 @@ func handleSearchCommand(client *api.Client, state *liner.State, model string, q
 	fmt.Println(cIA("IA> Comandos encontrados:"))
 
 	for i, res := range validResults {
-		fmt.Printf(cPrompt("  [%d]: ")+"%s %s\n", i+1, res.Command, cSystem(fmt.Sprintf("(Similitud: %.2f%%)", res.Score*100)))
+		// --- APLICAR FORMATO DE DISPLAY AQUÍ ---
+		formattedCommand := formatCommandForDisplay(res.Command)
+			fmt.Printf(cPrompt("  [%d]: ")+"%s %s\n", i+1, formattedCommand, cSystem(fmt.Sprintf("(Similitud: %.2f%%)", res.Score*100)))
 	}
 	fmt.Println(cSystem("---"))
 
@@ -1511,8 +1706,7 @@ func handleSearchCommand(client *api.Client, state *liner.State, model string, q
 
 	fmt.Println()
 	fmt.Println(cSystem("ejecutando:"))
-	fmt.Println(selectedCommand)
-	fmt.Println()
+	fmt.Println(selectedCommand) // Usamos el comando sin formato
 
 	cmd := exec.Command("bash", "-c", selectedCommand)
 	cmd.Stdout = os.Stdout
@@ -1527,163 +1721,4 @@ func handleSearchCommand(client *api.Client, state *liner.State, model string, q
 	}
 
 	return setAuto
-}
-
-// getDirectorySnippet escanea el directorio actual y devuelve un string con los archivos/dirs relevantes.
-func getDirectorySnippet() string {
-	// 1. Obtener archivos
-	files, err := os.ReadDir(".")
-	if err != nil {
-		return ""
-	}
-
-	var snippet strings.Builder
-	fileCount := 0
-
-	// Lista de nombres o extensiones a ignorar para mantener el contexto limpio
-	ignoreList := map[string]bool{
-		".git": true,
-		"vendor": true,
-		"node_modules": true,
-		"terminal-ia": true, // El binario compilado
-	}
-
-	// 2. Formatear los 10 elementos más relevantes
-	for _, file := range files {
-		name := file.Name()
-
-		// 2.1. Ignorar elementos
-		if strings.HasPrefix(name, ".") && name != "." && name != ".." {
-			// Ignorar archivos y directorios ocultos (excepto los que queremos ver)
-			if _, ok := ignoreList[name]; !ok {
-				continue
-			}
-		} else if _, ok := ignoreList[name]; ok {
-			continue
-		}
-
-		if fileCount >= 10 { // Limitar a 10 items
-			break
-		}
-
-		// 2.2. Añadir al snippet
-		if file.IsDir() {
-			snippet.WriteString(name)
-			snippet.WriteString("/")
-		} else {
-			snippet.WriteString(name)
-		}
-		snippet.WriteString(", ")
-		fileCount++
-	}
-
-	if snippet.Len() > 0 {
-		// Eliminar la última coma y espacio ", "
-		return strings.TrimSuffix(snippet.String(), ", ")
-	}
-	return ""
-}
-
-// handleConfigCommand gestiona el menú de configuración interactivo.
-func handleConfigCommand(client *api.Client, state *liner.State, currentModel string, currentAutoState bool) (string, bool) {
-	fmt.Println()
-
-	// Bucle principal del menú
-	for {
-		// --- Mostrar ambas versiones en la cabecera ---
-		versionInfo := fmt.Sprintf("Local: %s", currentVersion)
-		if githubLatestVersion != strings.TrimPrefix(strings.ToLower(currentVersion), "v") {
-			versionInfo += cError(fmt.Sprintf(" | GitHub: %s (¡ACTUALIZAR!)", githubLatestVersion))
-		} else {
-			versionInfo += cIA(" | GitHub: Al día")
-		}
-
-		fmt.Println(cSystem(fmt.Sprintf("--- Configuración de Terminal IA (%s) ---", versionInfo)))
-
-		// 1. Mostrar Estado Actual
-		autoState := cError("DESACTIVADO (Pedir Confirmación)")
-		if currentAutoState {
-			autoState = cIA("ACTIVADO (Auto-ejecución)")
-		}
-
-		fmt.Println(cPrompt(" [1] Modelo Actual: ") + cModel(currentModel))
-		fmt.Println(cPrompt(" [2] Modo Ejecución: ") + autoState)
-
-		// --- Mostrar ambas versiones en Opción 3 ---
-		fmt.Println(cPrompt(" [3] Versión:        ") + versionInfo)
-
-		fmt.Println(cPrompt(" [4] Limpiar Historial Semántico"))
-		fmt.Println(cPrompt(" [5] Limpiar Historial de Chat"))
-		fmt.Println(cPrompt(" [Q] Salir del Menú de Configuración"))
-		fmt.Println(cSystem("------------------------------------------------"))
-
-		prompt := "Selecciona una opción [1-5, Q]: "
-		input, err := state.Prompt(prompt)
-		if err != nil || strings.ToLower(input) == "q" || err == liner.ErrPromptAborted {
-			fmt.Println(cSystem("\nSaliendo del menú de configuración."))
-			return currentModel, currentAutoState // Salir sin cambios
-		}
-
-		state.AppendHistory(input)
-		input = strings.TrimSpace(strings.ToLower(input))
-		fmt.Println()
-
-		switch input {
-			case "1":
-				// Cambiar Modelo (Reutilizar chooseModel)
-				newModel := chooseModel(client, state)
-
-				// Recalentar y actualizar la UI
-				fmt.Println(cSystem("Recargando modelo..."))
-				warmUpModel(client, newModel)
-				clearScreen()
-				printLogo(newModel)
-				printHeader()
-				fmt.Println(cSystem("\n  Consejo: Escribe /help para ver todos los comandos."))
-
-				return newModel, currentAutoState
-
-			case "2":
-				// Alternar Modo Auto/Ask
-				newAutoState := !currentAutoState
-				if newAutoState {
-					fmt.Println(cIA("IA> Modo auto-ejecución ACTIVADO."))
-				} else {
-					fmt.Println(cSystem("IA> Modo auto-ejecución DESACTIVADO. Se pedirá confirmación."))
-				}
-				fmt.Println()
-				return currentModel, newAutoState
-
-			case "3":
-				// Mostrar Versión (Confirmar la información ya mostrada)
-				fmt.Println(cSystem(fmt.Sprintf("Terminal IA versión local: %s.", currentVersion)))
-				if githubLatestVersion != strings.TrimPrefix(strings.ToLower(currentVersion), "v") {
-					fmt.Println(cError(fmt.Sprintf("¡ADVERTENCIA! La versión de GitHub (%s) es más reciente.", githubLatestVersion)))
-				}
-				fmt.Println()
-
-			case "4":
-				// Limpiar Historial Semántico
-				// (Limpiar el archivo y el slice en memoria)
-				semanticHistoryLock.Lock()
-				semanticHistory = make([]SemanticHistoryEntry, 0)
-				semanticHistoryLock.Unlock()
-
-				// Sobreescribir el archivo con un array vacío
-				os.WriteFile(semanticHistoryPath, []byte("[]"), 0644)
-
-				fmt.Println(cIA("IA> Historial Semántico limpiado."))
-				fmt.Println()
-
-			case "5":
-				// Limpiar Historial de Chat (Reutilizar lógica de /reset)
-				chatHistory = nil
-				fmt.Println(cIA("IA> Historial de Chat limpiado."))
-				fmt.Println()
-
-			default:
-				fmt.Println(cError("Opción inválida. Inténtalo de nuevo."))
-				fmt.Println()
-		}
-	}
 }
